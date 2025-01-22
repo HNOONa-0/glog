@@ -120,6 +120,7 @@ static void TestErrno();
 static void TestTruncate();
 static void TestCustomLoggerDeletionOnShutdown();
 static void TestLogPeriodically();
+static void TestMaxLogSizeWhenNoTimestamp();
 
 static int x = -1;
 static void BM_Check1(int n) {
@@ -298,6 +299,7 @@ int main(int argc, char** argv) {
   TestTruncate();
   TestCustomLoggerDeletionOnShutdown();
   TestLogPeriodically();
+  TestMaxLogSizeWhenNoTimestamp();
 
   fprintf(stdout, "PASS\n");
   return 0;
@@ -845,6 +847,49 @@ static void TestBasenameAppendWhenNoTimestamp() {
   // if the logging overwrites the file instead of appending it will fail.
   CheckFile(dest, "test preexisting content");
   CheckFile(dest, "message to new base, appending to preexisting file");
+
+  // Release file handle for the destination file to unlock the file in Windows.
+  LogToStderr();
+  DeleteFiles(dest + "*");
+}
+
+static void TestMaxLogSizeWhenNoTimestamp() {
+  fprintf(stderr,
+          "==== Test setting max log size without timestamp\n");
+  const string dest = 
+      FLAGS_test_tmpdir + "/logging_test_max_log_size";
+  DeleteFiles(dest + "*");
+
+  // Save original flag values
+  int originalMaxLogSize = FLAGS_max_log_size;
+  bool originalTimestampSetting = FLAGS_timestamp_in_logfile_name;
+
+  FLAGS_max_log_size = 1; // Set max log size to 1MB
+  FLAGS_timestamp_in_logfile_name = false;
+
+  // Set log destination
+  SetLogDestination(GLOG_INFO, dest.c_str());
+
+  // 1e4 info logs -> is about 772 KB in size
+  // 2e4 info logs -> is around 1500 KB in size -> 1.5MB
+  // If our max_log_size constraint is respected, it will truncate earlier logs
+  // and the file size will be lesser than 1MB (around 0.5MB)
+  const int numLogs = 2e4;
+  for (int i = 0; i < numLogs; i++) {
+    LOG(INFO) << "Hello world";
+  }
+  FlushLogFiles(GLOG_INFO);
+
+  // Check log file size
+  struct stat statbuf;
+  stat(dest.c_str(), &statbuf);
+
+  // Verify file size is less than the max log size limit
+  CHECK_LT(static_cast<unsigned int>(statbuf.st_size), FLAGS_max_log_size << 20U);
+
+  // Reset flag values to their original values
+  FLAGS_max_log_size = originalMaxLogSize;
+  FLAGS_timestamp_in_logfile_name = originalTimestampSetting;
 
   // Release file handle for the destination file to unlock the file in Windows.
   LogToStderr();
