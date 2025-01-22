@@ -997,7 +997,10 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
     flags = flags | O_EXCL;
   }
   else{
-    // logs are written to a single file, truncate it if it exists.
+    // logs are written in a single file, where:
+    // a log file is created for the the first time
+    // or a file is being recreated due to exceeding max size
+    // truncate the file to respect max size constraint
     flags = flags | O_TRUNC;
   }
 
